@@ -5,23 +5,31 @@ module ::MItamae
         NotExistZoneError = Class.new(StandardError)
 
         def apply
-          if    desired.exist  &&  current.exist
-            desired.each do |k, v|
-              next if k == :config_dir
-              next if k == :config_name
+          if different?
+            if desired.exist
+              if current.exist
+                replace = Hashie::Mash.new
 
-              if current.key?(k)
-                if current[k] != v
-                  MItamae.logger.debug "k:#{k} v:#{v}"
+                current.each do |k, current_value|
+                  if !current_value.nil?
+                    replace[k] = current_value
+
+                    if !desired[k].nil?
+                      replace[k] = desired[k]
+                    end
+                  end
                 end
+
+                MItamae.logger.debug "rep #{replace}"
+                present_record('replace-rrset', replace)
+              else
+                MItamae.logger.debug "add #{desired}"
+                present_record('add-record', desired)
               end
+            else
+              MItamae.logger.debug "del #{desired}"
+              absent_record(desired)
             end
-          elsif !desired.exist &&  current.exist
-            delete_record(desired)
-          elsif desired.exist  && !current.exist
-            create_record(desired)
-          elsif !desired.exist && !current.exist
-            # nothing...
           end
         end
 
@@ -39,116 +47,141 @@ module ::MItamae
             raise NotImplementedError
           end
 
-          unless attributes.name.nil?
-            unless attributes.name.match(/\.\z/)
-              desired.name = attributes.name
-            else
-              desired.name = attributes.zone
-            end
+          case desired.name
+          when NilClass, '', '.', desired.zone
+            desired.name = desired.zone
           else
-            desired.name = attributes.zone
+            desired.name = "#{desired.name}.#{desired.zone}"
           end
 
-          if attributes.type == 'SOA'
-            unless attributes.rname.match(/\.\z/)
-              desired.rname = "#{attributes.rname}.#{attributes.zone}"
+          case desired.type
+          when 'SOA'
+            if desired.key?(:mname) and !desired.mname.match(/\.\z/)
+              desired.mname << '.'
             end
 
-            unless attributes.mname.match(/\.\z/)
-              desired.mname = "#{attributes.mname}.#{attributes.zone}"
+            if desired.key?(:rname) and !desired.rname.match(/\.\z/)
+              desired.rname << '.'
+            end
+          when 'A'
+            # nothing...
+          else
+            unless desired.content.match(/\.\z/)
+              desired.content << '.'
             end
           end
+
+          MItamae.logger.debug "desired #{desired}"
         end
 
         def set_current_attributes(current, action)
+          current.exist = false
+          current.name  = nil
+          current.ttl   = nil
+          current.type  = nil
+
+          if attributes.type == 'SOA'
+            current.mname   = nil
+            current.rname   = nil
+            current.serial  = nil
+            current.refresh = nil
+            current.retries = nil
+            current.expire  = nil
+            current.minimum = nil
+          else
+            current.content = nil
+          end
+
           @commands = ['pdnsutil']
 
           unless desired.config_name.empty?
+            current.config_name = desired.config_name
             @commands << '--config-name'
             @commands << desired.config_name
           end
 
           unless desired.config_dir.empty?
+            current.config_dir = desired.config_dir
             @commands << '--config-dir'
             @commands << desired.config_dir
           end
 
           zones = run_command("#{@commands.join(' ')} list-all-zones").stdout.split("\n")
 
-          unless zones.include?(desired.zone)
+          if zones.include?(desired.zone)
+            current.zone = desired.zone
+          else
             raise NotExistZoneError, "'#{desired.zone}' zone does not exist."
           end
 
-          results = run_command("#{@commands.join(' ')} list-zone #{desired.zone}").stdout.split("\n")
+          results = run_command("#{@commands.join(' ')} list-zone '#{desired.zone}'").stdout.split("\n")
 
-          results.each do |result|
-            case result
-            when /\A(#{Regexp.escape(desired.name)})\s+(\d+)\s+IN\s+(#{desired.type})\s+(.*)\z/
-              current.exist = true
-              current.name  = $1
-              current.ttl   = $2
-              current.type  = $3
+          results.select {|r|
+            r.match(/^#{Regexp.escape(desired.name)}\t\d+\tIN\t#{desired.type}\t/)
+          }.each do |result|
+            elements = result.split("\t")
 
-              if desired.type == 'SOA'
-                content         = $4.split(' ')
-                current.mname   = content[0]
-                current.rname   = content[1]
-                current.serial  = content[2].to_i
-                current.refresh = content[3].to_i
-                current.retries = content[4].to_i
-                current.expire  = content[5].to_i
-                current.minimum = content[6].to_i
-              else
-                current.content = $3
-              end
+            raise if elements.size != 5
+
+            current.name = elements[0]
+            current.type = elements[3]
+
+            case desired.type
+            when 'SOA'
+              current.exist   = true
+              current.ttl     = elements[1]
+              content         = elements[4].split(' ')
+              current.mname   = content[0]
+              current.rname   = content[1]
+              current.serial  = content[2].to_i
+              current.refresh = content[3].to_i
+              current.retries = content[4].to_i
+              current.expire  = content[5].to_i
+              current.minimum = content[6].to_i
             else
-              current.exist = false
-              current.name  = nil
-              current.ttl   = nil
-              current.type  = nil
-
-              if desired.type == 'SOA'
-                current.mname   = nil
-                current.rname   = nil
-                current.serial  = nil
-                current.refresh = nil
-                current.retries = nil
-                current.expire  = nil
-                current.minimum = nil
-              else
-                current.content = nil
+              if desired.content == elements[4]
+                current.exist   = true
+                current.ttl     = elements[1]
+                current.content = elements[4]
               end
             end
           end
+
+          MItamae.logger.debug "current #{current}"
         end
 
-        def create_record(desired)
-          # add-record ZONE NAME TYPE [ttl] content
+        def present_record(command, desired)
+          raise unless command.match(/^(?:add-record|replace-rrset)$/)
 
-          @commands << 'add-record'
-          @commands << "'#{desired.zone}.'"
-          @commands << "'#{desired.name}.'"
-          @commands << "#{desired.type}"
+          commands = [command]
+          commands << "'#{desired.zone}'"
+          commands << "'#{desired.name.gsub(/\.?#{Regexp.escape(desired.zone)}/, '')}.'"
+          commands << "#{desired.type}"
 
           if desired.key?(:ttl) and desired.ttl.is_a?(Numeric) and desired.ttl > 0
-            @commands << "#{desired.ttl}"
+            commands << "#{desired.ttl}"
           end
 
           if desired.type == 'SOA'
+            content = []
+            content << desired.mname
+            content << desired.rname
+            content << desired.serial
+            content << desired.refresh
+            content << desired.retries
+            content << desired.expire
+            content << desired.minimum
+            commands << "'#{content.join(' ')}'"
           else
-            @commands << "#{desired.content}"
+            commands << "'#{desired.content}'"
           end
 
-          MItamae.logger.debug "create_record #{@commands.join(' ')}"
+          run_command("#{@commands.join(' ')} #{commands.join(' ')}")
+          run_command("#{@commands.join(' ')} increase-serial '#{desired.zone}.'")
         end
 
-        def delete_record(desired)
+        def absent_record(desired)
           MItamae.logger.debug "delete_record #{desired}"
-        end
-
-        def replace_record(current, desired)
-          MItamae.logger.debug "#{desired}"
-          MItamae.logger.debug "#{current}"
         end
       end
     end

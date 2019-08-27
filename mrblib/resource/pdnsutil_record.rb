@@ -19,7 +19,7 @@ module ::MItamae
         define_attribute :minimum, type: Numeric
 
         # Other
-        define_attribute :content, type: [String, Array]
+        define_attribute :content, type: String
 
         self.available_actions = [:present, :absent]
       end
