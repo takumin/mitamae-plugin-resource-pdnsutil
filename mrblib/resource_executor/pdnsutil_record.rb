@@ -66,8 +66,10 @@ module ::MItamae
           when 'A'
             # nothing...
           else
-            unless desired.content.match(/\.\z/)
-              desired.content << '.'
+            desired.contents.each_with_index do |v, i|
+              unless v.match(/\.\z/)
+                desired.contents[i] << '.'
+              end
             end
           end
 
@@ -89,7 +91,7 @@ module ::MItamae
             current.expire  = nil
             current.minimum = nil
           else
-            current.content = nil
+            current.contents = nil
           end
 
           @commands = ['pdnsutil']
@@ -116,21 +118,28 @@ module ::MItamae
 
           results = run_command("#{@commands.join(' ')} list-zone '#{desired.zone}'").stdout.split("\n")
 
-          results.select {|r|
-            r.match(/^#{Regexp.escape(desired.name)}\t\d+\tIN\t#{desired.type}\t/)
-          }.each do |result|
-            elements = result.split("\t")
+          records = results.map do |r|
+            case r
+            when /^(#{Regexp.escape(desired.name)})\t(\d+)\tIN\t(#{desired.type})\t(.*)$/
+              Hashie::Mash.new({
+                :name    => $1,
+                :ttl     => $2,
+                :type    => $3,
+                :content => $4,
+              })
+            else
+              nil
+            end
+          end
 
-            raise if elements.size != 5
+          records.compact.each do |r|
+            current.exist = true
+            current.name  = r.name
+            current.ttl   = r.ttl
+            current.type  = r.type
 
-            current.name = elements[0]
-            current.type = elements[3]
-
-            case desired.type
-            when 'SOA'
-              current.exist   = true
-              current.ttl     = elements[1]
-              content         = elements[4].split(' ')
+            if r.type == 'SOA'
+              content = r.content.split(' ')
               current.mname   = content[0]
               current.rname   = content[1]
               current.serial  = content[2].to_i
@@ -139,11 +148,11 @@ module ::MItamae
               current.expire  = content[5].to_i
               current.minimum = content[6].to_i
             else
-              if desired.content == elements[4]
-                current.exist   = true
-                current.ttl     = elements[1]
-                current.content = elements[4]
+              if current.content.nil?
+                current.contents = []
               end
+
+              current.contents << r.content
             end
           end
 
@@ -173,7 +182,9 @@ module ::MItamae
             content << desired.minimum
             commands << "'#{content.join(' ')}'"
           else
-            commands << "'#{desired.content}'"
+            desired.contents.each do |v|
+              commands << "'#{v}'"
+            end
           end
 
           run_command("#{@commands.join(' ')} #{commands.join(' ')}")
