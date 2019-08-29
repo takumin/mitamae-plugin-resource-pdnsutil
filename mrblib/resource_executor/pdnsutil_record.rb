@@ -63,7 +63,7 @@ module ::MItamae
             if desired.key?(:rname) and !desired.rname.match(/\.\z/)
               desired.rname << '.'
             end
-          when 'A'
+          when 'A', 'PTR'
             # nothing...
           else
             desired.contents.each_with_index do |v, i|
