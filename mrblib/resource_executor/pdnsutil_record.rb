@@ -140,13 +140,21 @@ module ::MItamae
 
             if r.type == 'SOA'
               content = r.content.split(' ')
-              current.mname   = content[0]
-              current.rname   = content[1]
+              current.mname   = content[0].to_s.strip
+              current.rname   = content[1].to_s.strip
               current.serial  = content[2].to_i
               current.refresh = content[3].to_i
               current.retries = content[4].to_i
               current.expire  = content[5].to_i
               current.minimum = content[6].to_i
+
+              unless current.mname.match(/\.\z/)
+                current.mname << '.'
+              end
+
+              unless current.rname.match(/\.\z/)
+                current.rname << '.'
+              end
             else
               if current.content.nil?
                 current.contents = []
