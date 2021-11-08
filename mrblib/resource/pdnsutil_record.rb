@@ -5,8 +5,8 @@ module ::MItamae
         define_attribute :action, default: :present
         define_attribute :config_name, type: String
         define_attribute :config_dir, type: String
-        define_attribute :zone, type: String, default_name: true
-        define_attribute :name, type: String, required: true
+        define_attribute :zone, type: String, required: true
+        define_attribute :name, type: String
         define_attribute :type, type: String, required: true
         define_attribute :ttl, type: Numeric
 
