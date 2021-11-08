@@ -2,8 +2,6 @@ module ::MItamae
   module Plugin
     module ResourceExecutor
       class PdnsutilTsigKey < ::MItamae::ResourceExecutor::Base
-        NotExistZoneError = Class.new(StandardError)
-
         def apply
           if different?
             if desired['exist']
