@@ -35,6 +35,18 @@ module ::MItamae
             raise NotImplementedError
           end
 
+          if desired['value'].class == TrueClass
+            desired['value'] = ['yes']
+          end
+
+          if desired['value'].class == FalseClass
+            desired['value'] = ['no']
+          end
+
+          if desired['value'].class == String
+            desired['value'] = [desired['value']]
+          end
+
           MItamae.logger.debug "desired: #{desired}"
         end
 

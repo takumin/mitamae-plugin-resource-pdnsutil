@@ -7,7 +7,7 @@ module ::MItamae
         define_attribute :config_dir, type: String
         define_attribute :zone, type: String, required: true
         define_attribute :kind, type: String, required: true
-        define_attribute :value, type: [String, Array]
+        define_attribute :value, type: [TrueClass, FalseClass, String, Array]
 
         self.available_actions = [:present, :absent]
       end
