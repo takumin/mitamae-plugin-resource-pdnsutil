@@ -18,6 +18,12 @@ module ::MItamae
         define_attribute :expire, type: Numeric
         define_attribute :minimum, type: Numeric
 
+        # SRV
+        define_attribute :priority, type: Numeric
+        define_attribute :weight, type: Numeric
+        define_attribute :port, type: Numeric
+        define_attribute :target, type: String
+
         # Other
         define_attribute :contents, type: Array
 

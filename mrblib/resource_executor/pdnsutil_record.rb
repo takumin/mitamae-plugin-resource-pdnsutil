@@ -63,6 +63,10 @@ module ::MItamae
             if desired.key?(:rname) and !desired.rname.match(/\.\z/)
               desired.rname << '.'
             end
+          when 'SRV'
+            if desired.key?(:target) and !desired.target.match(/\.\z/)
+              desired.target << '.'
+            end
           when 'A', 'PTR'
             # nothing...
           else
@@ -82,7 +86,8 @@ module ::MItamae
           current.ttl   = nil
           current.type  = nil
 
-          if attributes.type == 'SOA'
+          case attributes.type
+          when 'SOA'
             current.mname   = nil
             current.rname   = nil
             current.serial  = nil
@@ -90,6 +95,11 @@ module ::MItamae
             current.retries = nil
             current.expire  = nil
             current.minimum = nil
+          when 'SRV'
+            current.priority = nil
+            current.weight   = nil
+            current.port     = nil
+            current.target   = nil
           else
             current.contents = nil
           end
@@ -119,13 +129,13 @@ module ::MItamae
           results = run_command("#{@commands.join(' ')} list-zone '#{desired.zone}'").stdout.split("\n")
 
           records = results.map do |r|
-            case r
-            when /^(#{Regexp.escape(desired.name)})\t(\d+)\tIN\t(#{desired.type})\t(.*)$/
+            v = r.split("\t")
+            if v[0] == desired.name and v[3] == desired.type
               Hashie::Mash.new({
-                :name    => $1,
-                :ttl     => $2,
-                :type    => $3,
-                :content => $4,
+                :name    => v[0],
+                :ttl     => v[1],
+                :type    => v[3],
+                :content => v[4],
               })
             else
               nil
@@ -138,8 +148,10 @@ module ::MItamae
             current.ttl   = r.ttl
             current.type  = r.type
 
-            if r.type == 'SOA'
+            case r.type
+            when 'SOA'
               content = r.content.split(' ')
+
               current.mname   = content[0].to_s.strip
               current.rname   = content[1].to_s.strip
               current.serial  = content[2].to_i
@@ -148,18 +160,26 @@ module ::MItamae
               current.expire  = content[5].to_i
               current.minimum = content[6].to_i
 
-              unless current.mname.match(/\.\z/)
-                current.mname << '.'
-              end
+              current.mname << '.' unless current.mname.match(/\.\z/)
+              current.rname << '.' unless current.rname.match(/\.\z/)
+            when 'SRV'
+              content = r.content.split(' ')
 
-              unless current.rname.match(/\.\z/)
-                current.rname << '.'
-              end
+              priority = content[0].to_i
+              weight   = content[1].to_i
+              port     = content[2].to_i
+              target   = content[3].to_s.strip
+
+              target << '.' unless target.match(/\.\z/)
+
+              next if target != desired.target
+
+              current.priority = priority
+              current.weight   = weight
+              current.port     = port
+              current.target   = target
             else
-              if current.content.nil?
-                current.contents = []
-              end
-
+              current.contents ||= []
               current.contents << r.content
             end
           end
@@ -179,7 +199,8 @@ module ::MItamae
             commands << "#{desired.ttl}"
           end
 
-          if desired.type == 'SOA'
+          case desired.type
+          when 'SOA'
             content = []
             content << desired.mname
             content << desired.rname
@@ -189,6 +210,12 @@ module ::MItamae
             content << desired.expire
             content << desired.minimum
             commands << "'#{content.join(' ')}'"
+          when 'SRV'
+            content = []
+            content << desired.priority
+            content << desired.weight
+            content << desired.port
+            content << desired.target
           else
             desired.contents.each do |v|
               commands << "'#{v}'"
