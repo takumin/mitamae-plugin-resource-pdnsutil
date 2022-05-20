@@ -67,7 +67,7 @@ module ::MItamae
             if desired.key?(:target) and !desired.target.match(/\.\z/)
               desired.target << '.'
             end
-          when 'A', 'PTR'
+          when 'A', 'AAAA', 'PTR'
             # nothing...
           else
             desired.contents.each_with_index do |v, i|
