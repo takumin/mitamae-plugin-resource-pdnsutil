@@ -216,6 +216,7 @@ module ::MItamae
             content << desired.weight
             content << desired.port
             content << desired.target
+            commands << "'#{content.join(' ')}'"
           else
             desired.contents.each do |v|
               commands << "'#{v}'"
